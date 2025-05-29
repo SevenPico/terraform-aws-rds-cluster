@@ -1,7 +1,7 @@
 locals {
-  enabled = module.this.enabled
+  enabled = module.context.enabled
 
-  partition = one(data.aws_partition.current[*].partition)
+  partition = local.arn_prefix
 
   deployed_cluster_identifier = local.enabled ? coalesce(one(aws_rds_cluster.primary[*].id), one(aws_rds_cluster.secondary[*].id)) : ""
   db_subnet_group_name        = one(aws_db_subnet_group.default[*].name)
@@ -17,17 +17,13 @@ locals {
   use_reserved_instances   = var.use_reserved_instances && !local.is_serverless
 }
 
-data "aws_partition" "current" {
-  count = local.enabled ? 1 : 0
-}
-
 # TODO: Use cloudposse/security-group module
 resource "aws_security_group" "default" {
   count       = local.enabled ? 1 : 0
-  name        = module.this.id
+  name        = module.context.id
   description = "Allow inbound traffic from Security Groups and CIDRs"
   vpc_id      = var.vpc_id
-  tags        = module.this.tags
+  tags        = module.context.tags
 }
 
 resource "aws_security_group_rule" "ingress_security_groups" {
@@ -124,7 +120,7 @@ resource "aws_rds_reserved_instance" "default" {
 # The primary cluster of a global database is actually created with the "secondary" cluster resource below.
 resource "aws_rds_cluster" "primary" {
   count              = local.enabled && local.is_regional_cluster ? 1 : 0
-  cluster_identifier = var.cluster_identifier == "" ? module.this.id : var.cluster_identifier
+  cluster_identifier = var.cluster_identifier == "" ? module.context.id : var.cluster_identifier
   database_name      = var.db_name
   # manage_master_user_password must be `null` or `true`. If it is `false`, and `master_password` is not `null`, a conflict occurs.
   manage_master_user_password           = var.manage_admin_user_password ? var.manage_admin_user_password : null
@@ -134,7 +130,7 @@ resource "aws_rds_cluster" "primary" {
   backup_retention_period               = var.retention_period
   preferred_backup_window               = var.backup_window
   copy_tags_to_snapshot                 = var.copy_tags_to_snapshot
-  final_snapshot_identifier             = var.cluster_identifier == "" ? lower(module.this.id) : lower(var.cluster_identifier)
+  final_snapshot_identifier             = var.cluster_identifier == "" ? lower(module.context.id) : lower(var.cluster_identifier)
   skip_final_snapshot                   = var.skip_final_snapshot
   apply_immediately                     = var.apply_immediately
   db_cluster_instance_class             = local.is_serverless ? null : var.db_cluster_instance_class
@@ -151,7 +147,7 @@ resource "aws_rds_cluster" "primary" {
   db_subnet_group_name                  = join("", aws_db_subnet_group.default[*].name)
   db_cluster_parameter_group_name       = join("", aws_rds_cluster_parameter_group.default[*].name)
   iam_database_authentication_enabled   = var.iam_database_authentication_enabled
-  tags                                  = module.this.tags
+  tags                                  = module.context.tags
   engine                                = var.engine
   engine_version                        = var.engine_version
   allow_major_version_upgrade           = var.allow_major_version_upgrade
@@ -232,7 +228,7 @@ resource "aws_rds_cluster" "primary" {
 # https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/rds_cluster#replication_source_identifier
 resource "aws_rds_cluster" "secondary" {
   count              = local.enabled && !local.is_regional_cluster ? 1 : 0
-  cluster_identifier = var.cluster_identifier == "" ? module.this.id : var.cluster_identifier
+  cluster_identifier = var.cluster_identifier == "" ? module.context.id : var.cluster_identifier
   database_name      = var.db_name
   # manage_master_user_password must be `null` or `true`. If it is `false`, and `master_password` is not `null`, a conflict occurs.
   manage_master_user_password         = var.manage_admin_user_password ? var.manage_admin_user_password : null
@@ -242,7 +238,7 @@ resource "aws_rds_cluster" "secondary" {
   backup_retention_period             = var.retention_period
   preferred_backup_window             = var.backup_window
   copy_tags_to_snapshot               = var.copy_tags_to_snapshot
-  final_snapshot_identifier           = var.cluster_identifier == "" ? lower(module.this.id) : lower(var.cluster_identifier)
+  final_snapshot_identifier           = var.cluster_identifier == "" ? lower(module.context.id) : lower(var.cluster_identifier)
   skip_final_snapshot                 = var.skip_final_snapshot
   apply_immediately                   = var.apply_immediately
   db_cluster_instance_class           = local.is_serverless ? null : var.db_cluster_instance_class
@@ -257,7 +253,7 @@ resource "aws_rds_cluster" "secondary" {
   db_subnet_group_name                = join("", aws_db_subnet_group.default[*].name)
   db_cluster_parameter_group_name     = join("", aws_rds_cluster_parameter_group.default[*].name)
   iam_database_authentication_enabled = var.iam_database_authentication_enabled
-  tags                                = module.this.tags
+  tags                                = module.context.tags
   engine                              = var.engine
   engine_version                      = var.engine_version
   allow_major_version_upgrade         = var.allow_major_version_upgrade
@@ -324,7 +320,7 @@ resource "aws_rds_cluster" "secondary" {
 
 resource "random_pet" "instance" {
   count  = local.enabled ? 1 : 0
-  prefix = var.cluster_identifier == "" ? module.this.id : var.cluster_identifier
+  prefix = var.cluster_identifier == "" ? module.context.id : var.cluster_identifier
   keepers = {
     cluster_family = var.cluster_family
     instance_class = var.serverlessv2_scaling_configuration != null ? "db.serverless" : var.instance_type
@@ -334,8 +330,8 @@ resource "random_pet" "instance" {
 module "rds_identifier" {
   count = local.enabled ? 1 : 0
 
-  source  = "cloudposse/label/null"
-  version = "0.25.0"
+  source  = "SevenPico/context/null"
+  version = "2.0.0"
 
   name = random_pet.instance[0].id
   # Max length of RDS identifier is 63 characters, but in `aws_rds_cluster_instance`
@@ -354,7 +350,7 @@ resource "aws_rds_cluster_instance" "default" {
   db_subnet_group_name                  = local.db_subnet_group_name
   db_parameter_group_name               = join("", aws_db_parameter_group.default[*].name)
   publicly_accessible                   = var.publicly_accessible
-  tags                                  = module.this.tags
+  tags                                  = module.context.tags
   engine                                = var.engine
   engine_version                        = var.engine_version
   auto_minor_version_upgrade            = var.auto_minor_version_upgrade
@@ -395,17 +391,17 @@ resource "aws_rds_cluster_instance" "default" {
 
 resource "aws_db_subnet_group" "default" {
   count       = local.enabled ? 1 : 0
-  name        = try(length(var.subnet_group_name), 0) == 0 ? module.this.id : var.subnet_group_name
+  name        = try(length(var.subnet_group_name), 0) == 0 ? module.context.id : var.subnet_group_name
   description = "Allowed subnets for DB cluster instances"
   subnet_ids  = var.subnets
-  tags        = module.this.tags
+  tags        = module.context.tags
 }
 
 resource "aws_rds_cluster_parameter_group" "default" {
   count = local.enabled ? 1 : 0
 
-  name_prefix = var.parameter_group_name_prefix_enabled ? "${coalesce(var.rds_cluster_parameter_group_name, module.this.id)}${module.this.delimiter}" : null
-  name        = !var.parameter_group_name_prefix_enabled ? coalesce(var.rds_cluster_parameter_group_name, module.this.id) : null
+  name_prefix = var.parameter_group_name_prefix_enabled ? "${coalesce(var.rds_cluster_parameter_group_name, module.context.id)}${module.context.delimiter}" : null
+  name        = !var.parameter_group_name_prefix_enabled ? coalesce(var.rds_cluster_parameter_group_name, module.context.id) : null
 
   description = "DB cluster parameter group"
   family      = var.cluster_family
@@ -419,7 +415,7 @@ resource "aws_rds_cluster_parameter_group" "default" {
     }
   }
 
-  tags = module.this.tags
+  tags = module.context.tags
 
   lifecycle {
     create_before_destroy = true
@@ -429,8 +425,8 @@ resource "aws_rds_cluster_parameter_group" "default" {
 resource "aws_db_parameter_group" "default" {
   count = local.enabled ? 1 : 0
 
-  name_prefix = var.parameter_group_name_prefix_enabled ? "${coalesce(var.db_parameter_group_name, module.this.id)}${module.this.delimiter}" : null
-  name        = !var.parameter_group_name_prefix_enabled ? coalesce(var.db_parameter_group_name, module.this.id) : null
+  name_prefix = var.parameter_group_name_prefix_enabled ? "${coalesce(var.db_parameter_group_name, module.context.id)}${module.context.delimiter}" : null
+  name        = !var.parameter_group_name_prefix_enabled ? coalesce(var.db_parameter_group_name, module.context.id) : null
 
   description = "DB instance parameter group"
   family      = var.cluster_family
@@ -444,7 +440,7 @@ resource "aws_db_parameter_group" "default" {
     }
   }
 
-  tags = module.this.tags
+  tags = module.context.tags
 
   lifecycle {
     create_before_destroy = true
@@ -452,9 +448,9 @@ resource "aws_db_parameter_group" "default" {
 }
 
 locals {
-  cluster_dns_name_default = "master.${module.this.name}"
+  cluster_dns_name_default = "master.${module.context.name}"
   cluster_dns_name         = var.cluster_dns_name != "" ? var.cluster_dns_name : local.cluster_dns_name_default
-  reader_dns_name_default  = "replicas.${module.this.name}"
+  reader_dns_name_default  = "replicas.${module.context.name}"
   reader_dns_name          = var.reader_dns_name != "" ? var.reader_dns_name : local.reader_dns_name_default
 }
 
@@ -467,7 +463,7 @@ module "dns_master" {
   zone_id  = try(var.zone_id[0], tostring(var.zone_id), "")
   records  = coalescelist(aws_rds_cluster.primary[*].endpoint, aws_rds_cluster.secondary[*].endpoint, [""])
 
-  context = module.this.context
+  context = module.context.legacy
 }
 
 module "dns_replicas" {
@@ -479,7 +475,7 @@ module "dns_replicas" {
   zone_id  = try(var.zone_id[0], tostring(var.zone_id), "")
   records  = coalescelist(aws_rds_cluster.primary[*].reader_endpoint, aws_rds_cluster.secondary[*].reader_endpoint, [""])
 
-  context = module.this.context
+  context = module.context.legacy
 }
 
 resource "aws_appautoscaling_target" "replicas" {
@@ -493,7 +489,7 @@ resource "aws_appautoscaling_target" "replicas" {
 
 resource "aws_appautoscaling_policy" "replicas" {
   count              = local.enabled && var.autoscaling_enabled ? 1 : 0
-  name               = module.this.id
+  name               = module.context.id
   service_namespace  = join("", aws_appautoscaling_target.replicas[*].service_namespace)
   scalable_dimension = join("", aws_appautoscaling_target.replicas[*].scalable_dimension)
   resource_id        = join("", aws_appautoscaling_target.replicas[*].resource_id)
