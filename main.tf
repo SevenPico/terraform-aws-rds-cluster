@@ -223,6 +223,18 @@ resource "aws_rds_cluster" "primary" {
   enabled_cloudwatch_logs_exports = var.enabled_cloudwatch_logs_exports
   deletion_protection             = var.deletion_protection
   replication_source_identifier   = var.replication_source_identifier
+
+  lifecycle {
+    ignore_changes = [
+      global_cluster_identifier,
+      database_name,
+      master_username,
+      master_password,
+      # Possibly also:
+      engine_version,  # If inherited from global cluster
+      storage_encrypted  # If changed during conversion
+    ]
+  }
 }
 
 # https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/rds_cluster#replication_source_identifier
@@ -312,6 +324,13 @@ resource "aws_rds_cluster" "secondary" {
 
   lifecycle {
     ignore_changes = [
+      global_cluster_identifier,
+      database_name,
+      master_username,
+      master_password,
+      # Possibly also:
+      engine_version,                # If inherited from global cluster
+      storage_encrypted,             # If changed during conversion
       replication_source_identifier, # will be set/managed by Global Cluster
       snapshot_identifier,           # if created from a snapshot, will be non-null at creation, but null afterwards
     ]
