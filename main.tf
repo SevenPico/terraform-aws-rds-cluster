@@ -230,6 +230,7 @@ resource "aws_rds_cluster" "primary" {
       database_name,
       master_username,
       master_password,
+      performance_insights_enabled,
       # Possibly also:
       engine_version,  # If inherited from global cluster
       storage_encrypted  # If changed during conversion
@@ -328,6 +329,7 @@ resource "aws_rds_cluster" "secondary" {
       database_name,
       master_username,
       master_password,
+      performance_insights_enabled,
       # Possibly also:
       engine_version,                # If inherited from global cluster
       storage_encrypted,             # If changed during conversion
